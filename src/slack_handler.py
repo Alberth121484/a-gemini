@@ -192,7 +192,20 @@ async def handle_message(event: dict, client: AsyncWebClient, say):
         except Exception:
             pass
         
-        await client.chat_postMessage(channel=channel_id, text=f"Lo siento, ocurrió un error: {str(e)[:200]}")
+        # User-friendly error messages
+        error_str = str(e).lower()
+        if "quota" in error_str or "rate" in error_str or "limit" in error_str or "exceeded" in error_str:
+            user_message = "🙏 Lo siento, en este momento el servicio está experimentando alta demanda. Por favor intenta de nuevo en unos minutos."
+        elif "api_key" in error_str or "invalid_auth" in error_str or "authentication" in error_str:
+            user_message = "⚙️ Hay un problema de configuración del servicio. El equipo técnico ha sido notificado."
+        elif "timeout" in error_str or "timed out" in error_str:
+            user_message = "⏱️ La solicitud tardó demasiado tiempo. Por favor intenta de nuevo con una consulta más corta."
+        elif "connection" in error_str or "network" in error_str:
+            user_message = "🌐 Hay problemas de conexión temporales. Por favor intenta de nuevo en unos momentos."
+        else:
+            user_message = "😔 Lo siento, no pude procesar tu solicitud en este momento. Por favor intenta de nuevo más tarde."
+        
+        await client.chat_postMessage(channel=channel_id, text=user_message)
 
 
 @app.event("app_mention")
