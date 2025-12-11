@@ -180,25 +180,48 @@ class ChatMemory:
 
 
 class LogsManager:
-    """Efficient logging to PostgreSQL with batch inserts."""
+    """Efficient logging to PostgreSQL."""
     
     def __init__(self, table_name: str = None):
         self.table_name = table_name or settings.logs_table
     
     async def log_request(self, user_id: str, username: str, email: str):
-        """Log a request with upsert for efficiency."""
+        """Log a request - creates or updates user record."""
         pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                f"""
-                INSERT INTO {self.table_name} (userid, username, correo, peticiones)
-                VALUES ($1, $2, $3, 1)
-                ON CONFLICT (userid) DO UPDATE SET peticiones = {self.table_name}.peticiones + 1
-                """,
-                user_id,
-                username,
-                email
-            )
+        try:
+            async with pool.acquire() as conn:
+                # Try upsert first (requires PRIMARY KEY or UNIQUE constraint)
+                try:
+                    await conn.execute(
+                        f"""
+                        INSERT INTO {self.table_name} (userid, username, correo, peticiones)
+                        VALUES ($1, $2, $3, 1)
+                        ON CONFLICT (userid) DO UPDATE SET peticiones = {self.table_name}.peticiones + 1
+                        """,
+                        user_id,
+                        username,
+                        email
+                    )
+                except Exception:
+                    # Fallback: check if exists, then insert or update
+                    existing = await conn.fetchval(
+                        f"SELECT peticiones FROM {self.table_name} WHERE userid = $1",
+                        user_id
+                    )
+                    if existing is not None:
+                        await conn.execute(
+                            f"UPDATE {self.table_name} SET peticiones = peticiones + 1 WHERE userid = $1",
+                            user_id
+                        )
+                    else:
+                        await conn.execute(
+                            f"INSERT INTO {self.table_name} (userid, username, correo, peticiones) VALUES ($1, $2, $3, 1)",
+                            user_id,
+                            username,
+                            email
+                        )
+        except Exception as e:
+            logger.warning("Failed to log request", error=str(e))
 
 
 class RateLimiter:
