@@ -85,7 +85,7 @@ async def handle_message(event: dict, client: AsyncWebClient, say):
         # Rate limiting check
         allowed, remaining = await rate_limiter.is_allowed(user_id)
         if not allowed:
-            await say(text="⚠️ Has alcanzado el límite de solicitudes. Por favor espera un momento.")
+            await client.chat_postMessage(channel=channel_id, text="⚠️ Has alcanzado el límite de solicitudes. Por favor espera un momento.")
             return
         
         # Add "eyes" reaction to show processing
@@ -131,7 +131,7 @@ async def handle_message(event: dict, client: AsyncWebClient, say):
                     filename=f"audio-{datetime.now().strftime('%Y-%m-%d')}.mp3",
                 )
             elif result.get("text"):
-                await say(text=result["text"])
+                await client.chat_postMessage(channel=channel_id, text=result["text"])
         
         else:
             # Text, image, or document message
@@ -160,9 +160,9 @@ async def handle_message(event: dict, client: AsyncWebClient, say):
                 if len(text) > 3900:
                     chunks = [text[i:i+3900] for i in range(0, len(text), 3900)]
                     for chunk in chunks:
-                        await say(text=chunk)
+                        await client.chat_postMessage(channel=channel_id, text=chunk)
                 else:
-                    await say(text=text)
+                    await client.chat_postMessage(channel=channel_id, text=text)
         
         # Remove "eyes" and add checkmark
         try:
@@ -192,7 +192,7 @@ async def handle_message(event: dict, client: AsyncWebClient, say):
         except Exception:
             pass
         
-        await say(text=f"Lo siento, ocurrió un error: {str(e)[:200]}")
+        await client.chat_postMessage(channel=channel_id, text=f"Lo siento, ocurrió un error: {str(e)[:200]}")
 
 
 @app.event("app_mention")
