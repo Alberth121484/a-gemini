@@ -45,7 +45,7 @@ services:
       - DATABASE_POOL_MAX=${DATABASE_POOL_MAX:-100}
       
       # Redis Configuration
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - REDIS_URL=${REDIS_URL:-redis://a-gemini-redis:6379/0}
       
       # Application Configuration
       - HOST=0.0.0.0
@@ -104,6 +104,29 @@ services:
     
     volumes:
       - a-gemini-logs:/app/logs
+    
+    depends_on:
+      - a-gemini-redis
+
+  a-gemini-redis:
+    image: redis:7-alpine
+    container_name: a-gemini-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    networks:
+      - tiendasneto
+    volumes:
+      - a-gemini-redis-data:/data
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
 
 networks:
   tiendasneto:
@@ -112,4 +135,6 @@ networks:
 
 volumes:
   a-gemini-logs:
+    driver: local
+  a-gemini-redis-data:
     driver: local
