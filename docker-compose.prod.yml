@@ -13,7 +13,7 @@ services:
       - "8000"
     
     ports:
-      - "1406:8000"
+      - "1407:8000"
     
     networks:
       - tiendasneto
