@@ -1,4 +1,10 @@
--- Initialize database tables for Gemini Agent
+-- Initialize database for Gemini Agent
+-- Run this connected to 'postgres' database first to create the gemini database
+
+-- Create database (run this first, connected to 'postgres')
+-- CREATE DATABASE gemini;
+
+-- Then connect to 'gemini' database and run the rest:
 
 -- Chat history table (compatible with n8n format)
 CREATE TABLE IF NOT EXISTS n8n_chat_histories_geminiv2 (
