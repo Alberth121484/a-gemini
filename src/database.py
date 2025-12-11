@@ -46,21 +46,31 @@ async def close_db_pool():
         logger.info("Database pool closed")
 
 
-async def init_redis() -> redis.Redis:
+async def init_redis() -> Optional[redis.Redis]:
     """Initialize Redis client for caching and rate limiting."""
     global _redis_client
+    
+    if not settings.redis_url:
+        logger.info("Redis not configured, running without cache")
+        return None
+    
     if _redis_client is None:
-        _redis_client = redis.from_url(
-            settings.redis_url,
-            encoding="utf-8",
-            decode_responses=True,
-        )
-        logger.info("Redis client initialized")
+        try:
+            _redis_client = redis.from_url(
+                settings.redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+            )
+            await _redis_client.ping()
+            logger.info("Redis client initialized")
+        except Exception as e:
+            logger.warning("Failed to connect to Redis, running without cache", error=str(e))
+            return None
     return _redis_client
 
 
-async def get_redis() -> redis.Redis:
-    """Get the Redis client."""
+async def get_redis() -> Optional[redis.Redis]:
+    """Get the Redis client. Returns None if not available."""
     if _redis_client is None:
         return await init_redis()
     return _redis_client
@@ -76,7 +86,7 @@ async def close_redis():
 
 
 class ChatMemory:
-    """Efficient chat memory management with PostgreSQL and Redis caching."""
+    """Efficient chat memory management with PostgreSQL and optional Redis caching."""
     
     def __init__(self, session_id: str, table_name: str = None, context_length: int = None):
         self.session_id = session_id
@@ -84,14 +94,18 @@ class ChatMemory:
         self.context_length = context_length or settings.context_window_length
     
     async def get_history(self) -> List[Dict[str, str]]:
-        """Get chat history with Redis caching."""
+        """Get chat history with optional Redis caching."""
         redis_client = await get_redis()
         cache_key = f"chat_history:{self.session_id}"
         
-        # Try cache first
-        cached = await redis_client.get(cache_key)
-        if cached:
-            return json.loads(cached)
+        # Try cache first if available
+        if redis_client:
+            try:
+                cached = await redis_client.get(cache_key)
+                if cached:
+                    return json.loads(cached)
+            except Exception:
+                pass
         
         # Fetch from database
         pool = await get_db_pool()
@@ -110,8 +124,12 @@ class ChatMemory:
         
         history = [{"role": row["role"], "content": row["content"]} for row in reversed(rows)]
         
-        # Cache for 5 minutes
-        await redis_client.setex(cache_key, 300, json.dumps(history))
+        # Cache for 5 minutes if Redis available
+        if redis_client:
+            try:
+                await redis_client.setex(cache_key, 300, json.dumps(history))
+            except Exception:
+                pass
         
         return history
     
@@ -129,9 +147,13 @@ class ChatMemory:
                 content
             )
         
-        # Invalidate cache
+        # Invalidate cache if Redis available
         redis_client = await get_redis()
-        await redis_client.delete(f"chat_history:{self.session_id}")
+        if redis_client:
+            try:
+                await redis_client.delete(f"chat_history:{self.session_id}")
+            except Exception:
+                pass
     
     async def add_interaction(self, user_message: str, ai_response: str):
         """Add both user and AI messages in a single transaction."""
@@ -148,9 +170,13 @@ class ChatMemory:
                     ai_response
                 )
         
-        # Invalidate cache
+        # Invalidate cache if Redis available
         redis_client = await get_redis()
-        await redis_client.delete(f"chat_history:{self.session_id}")
+        if redis_client:
+            try:
+                await redis_client.delete(f"chat_history:{self.session_id}")
+            except Exception:
+                pass
 
 
 class LogsManager:
@@ -176,7 +202,7 @@ class LogsManager:
 
 
 class RateLimiter:
-    """Token bucket rate limiter using Redis."""
+    """Token bucket rate limiter using Redis (optional)."""
     
     def __init__(self, max_requests: int = None, window_seconds: int = None):
         self.max_requests = max_requests or settings.rate_limit_requests
@@ -185,16 +211,25 @@ class RateLimiter:
     async def is_allowed(self, user_id: str) -> tuple[bool, int]:
         """Check if request is allowed. Returns (allowed, remaining)."""
         redis_client = await get_redis()
-        key = f"rate_limit:{user_id}"
         
-        current = await redis_client.get(key)
-        if current is None:
-            await redis_client.setex(key, self.window_seconds, 1)
-            return True, self.max_requests - 1
+        # If Redis not available, allow all requests (no rate limiting)
+        if not redis_client:
+            return True, self.max_requests
         
-        current = int(current)
-        if current >= self.max_requests:
-            return False, 0
-        
-        await redis_client.incr(key)
-        return True, self.max_requests - current - 1
+        try:
+            key = f"rate_limit:{user_id}"
+            
+            current = await redis_client.get(key)
+            if current is None:
+                await redis_client.setex(key, self.window_seconds, 1)
+                return True, self.max_requests - 1
+            
+            current = int(current)
+            if current >= self.max_requests:
+                return False, 0
+            
+            await redis_client.incr(key)
+            return True, self.max_requests - current - 1
+        except Exception:
+            # On Redis error, allow the request
+            return True, self.max_requests

@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     database_pool_min: int = 10
     database_pool_max: int = 100
     
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    # Redis (optional - works without it but no caching)
+    redis_url: Optional[str] = None
     
     # Server
     host: str = "0.0.0.0"
